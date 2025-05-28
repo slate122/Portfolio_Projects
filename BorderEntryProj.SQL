@@ -1,21 +1,22 @@
-/*https://www.bts.gov/explore-topics-and-geography/geography/border-crossingentry-data#1
-Written in PostgreSQL 17.5*/
+/* https://www.bts.gov/explore-topics-and-geography/geography/border-crossingentry-data#1
+Written in PostgreSQL 17.5 
+Assumes table: border_entry_data with columns (date, port_code, port_name, state_name, border, measure, value, latitude, longitude)
+*/
 
---Total number of entries all time
+-- Total number of all recorded entries across all time and all ports
 SELECT
 	SUM(value)
 FROM
 	border_entry_data;
 
---Find out the time frame data has been recorded
+-- Timeframe of available data (start and end dates)
 SELECT
-	MAX(date),
-	MIN(date)
+	MAX(date), -- Most recent entry
+	MIN(date)  -- Earliest recorded entry
 FROM
 	border_entry_data;
 
-
---Find out the states
+-- List of all U.S. states appearing in dataset
 SELECT
 	state_name
 FROM
@@ -23,7 +24,7 @@ FROM
 GROUP BY
 	state_name;
 
---Find out the amount of ports per state 
+-- Count of distinct ports per state (how many entry points each state has)
 SELECT
 	state_name,
 	COUNT(DISTINCT port_code) AS PORTS
@@ -34,26 +35,28 @@ GROUP BY
 ORDER BY
 	state_name;
 
---Find out the total amount of ports 
+-- Total number of distinct ports (nationwide)
 SELECT
 	COUNT(DISTINCT port_code)
 FROM
 	border_entry_data;
 
---Find out the avg entries from mexico to us and canada to us by day, week, month, year 
+-- Average entries by day/week/month/year for each border
 SELECT
 	border,
-	-- Data only has the first of the months so must find number of days as diff from end to start date
+	-- Average per day: total divided by range in days
 	(SUM(value)/(MAX(date)-MIN(date))) AS avg_day,
-	-- SImilarly, we divide number of days by 7 to return number of weeks
+	-- Approximate average per week
 	(SUM(value)/((MAX(date)-MIN(date))/7)) AS avg_week,
-	(SUM(value)/COUNT(DISTINCT DATE_TRUNC('month',date))) AS avg_month,
-	(SUM(value)/COUNT(DISTINCT DATE_TRUNC('year',date))) AS avg_year
+	-- Monthly average using number of distinct months
+	(SUM(value)/COUNT(DISTINCT DATE_TRUNC('month', date))) AS avg_month,
+	-- Yearly average using number of distinct years
+	(SUM(value)/COUNT(DISTINCT DATE_TRUNC('year', date))) AS avg_year
 FROM
 	border_entry_data
 GROUP BY border;
 
---Find out the on the month and what port, the highest number of entries occurred 
+-- Top 10 highest entry records (month+port+measure with highest volumes)
 SELECT
 	date,
 	port_name,
@@ -66,7 +69,7 @@ ORDER BY
 	value DESC
 LIMIT 10;
 
---Find out the 'most popular' port of entry by avg 
+-- Top 5 most popular ports by AVERAGE number of entries
 SELECT
 	port_name,
 	state_name,
@@ -75,11 +78,11 @@ SELECT
 	AVG(value) AS total_entries
 FROM
 	border_entry_data
-GROUP BY port_name,state_name,longitude,latitude
+GROUP BY port_name, state_name, longitude, latitude
 ORDER BY total_entries DESC
 LIMIT 5;
 
---Find out the 'most popular' port of entry by total entries 
+-- Top 5 most popular ports by TOTAL number of entries
 SELECT
 	port_name,
 	state_name,
@@ -88,11 +91,11 @@ SELECT
 	SUM(value) AS total_entries
 FROM
 	border_entry_data
-GROUP BY port_name,state_name,longitude,latitude
+GROUP BY port_name, state_name, longitude, latitude
 ORDER BY total_entries DESC
 LIMIT 5;
 
---The least popular ports of entry by avg
+-- Bottom 5 least popular ports by AVERAGE entries
 SELECT
 	port_name,
 	state_name,
@@ -101,22 +104,22 @@ SELECT
 	AVG(value) AS avg_entries
 FROM
 	border_entry_data
-GROUP BY port_name,state_name,longitude,latitude
-ORDER BY avg_entries 
+GROUP BY port_name, state_name, longitude, latitude
+ORDER BY avg_entries
 LIMIT 5;
 
---The least popular ports of entry by total
+-- Bottom 5 least popular ports by TOTAL entries
 SELECT
 	port_name,
 	state_name,
 	SUM(value) AS total_entries
 FROM
 	border_entry_data
-GROUP BY port_name,state_name
-ORDER BY total_entries 
+GROUP BY port_name, state_name
+ORDER BY total_entries
 LIMIT 5;
 
---The # of entry points in the north vs south
+-- Number of distinct ports per border (e.g., northern vs southern)
 SELECT
 	border,
 	COUNT(DISTINCT port_code)
@@ -124,51 +127,48 @@ FROM
 	border_entry_data
 GROUP BY border;
 
---The # of entries by method in total and percentage
+-- Total entries by method (e.g., pedestrian, vehicle, rail), and percentage of total
 SELECT
     measure,
     SUM(value) AS grouped_sum,
-    SUM(value)*100/SUM(SUM(value)) OVER () AS percent_of_total
+    SUM(value) * 100 / SUM(SUM(value)) OVER () AS percent_of_total
 FROM
     border_entry_data
 GROUP BY
     measure
 ORDER BY percent_of_total DESC;
 
---The # of entries by method by border in total and percentage
+-- Total and percentage of entries per method, broken down by border
 SELECT
     border,
 	measure,
     SUM(value) AS total,
-	SUM(value)*100/total_sum::NUMERIC AS percent_of_total,
-	--RANKS the popularity by type from border 0 is all types summed
-	RANK() OVER(PARTITION BY border ORDER BY SUM(value)*100/total_sum::NUMERIC DESC)-1 AS most_pop_type_per_border
+	SUM(value) * 100 / total_sum::NUMERIC AS percent_of_total,
+	RANK() OVER(PARTITION BY border ORDER BY SUM(value) * 100 / total_sum::NUMERIC DESC) - 1 AS most_pop_type_per_border
 FROM
     border_entry_data
---I cross join here to get an instance of only the total sum included into the original table
---this is needed to calculate % total
+-- Use CROSS JOIN to include total sum in each row for percentage calculation
 CROSS JOIN (
         SELECT SUM(value) AS total_sum FROM border_entry_data
     ) t
 GROUP BY
-   	ROLLUP(border,measure),total_sum
+   	ROLLUP(border, measure), total_sum
 ORDER BY border;
 
---Gives us the different means of entry and their popularity by state
+-- Method of entry usage per state (e.g., California: pedestrian, vehicle...)
 SELECT
 	state_name,
 	measure,
-	SUM(value)
+	SUM(value) AS entries
 FROM
 	border_entry_data
 GROUP BY
 	state_name,
 	measure
 ORDER BY 
-	state_name,entries DESC;
+	state_name, entries DESC;
 
---distribution of total entries over time I am unsure if this is better per year or per month
---SO I will do both and decide later :)
+-- Distribution of total entries per year
 SELECT
 	DATE_TRUNC('year', date) AS per_year,
 	SUM(value)
@@ -178,6 +178,8 @@ GROUP BY
 	per_year
 ORDER BY 
 	per_year;
+
+-- Distribution of total entries per month
 SELECT
 	date AS per_month,
 	SUM(value)
@@ -188,119 +190,100 @@ GROUP BY
 ORDER BY 
 	per_month;
 
---find out which states have the highest entry by each type on avg, 
---in other words, where are the most popular version of each measure entering from
+-- State with highest average number of entries per measure type (most popular state per method)
 WITH
---first table that finds avg entry by state and type
+-- Table T1: avg value per state & method
 	T1 AS (
 		SELECT
-			STATE_NAME,
-			MEASURE,
-			AVG(VALUE) AS NUM_ENTRIES
+			state_name,
+			measure,
+			AVG(value) AS num_entries
 		FROM
-			BORDER_ENTRY_DATA
+			border_entry_data
 		GROUP BY
-			MEASURE,
-			STATE_NAME
+			measure,
+			state_name
 	),
---second table to find the max avg value by type
+-- Table T2: max avg per method
 	T2 AS (
 		SELECT
-			MEASURE,
-			MAX(NUM_ENTRIES) AS HIGHEST_AVG
+			measure,
+			MAX(num_entries) AS highest_avg
 		FROM
 			T1
 		GROUP BY
-			MEASURE
+			measure
 	)
+-- Join to get the state corresponding to each highest method avg
 SELECT
-	T2.MEASURE,
-	ROUND(T2.HIGHEST_AVG,2),
-	T1.STATE_NAME
+	T2.measure,
+	ROUND(T2.highest_avg, 2),
+	T1.state_name
 FROM
 	T2
-	LEFT JOIN T1 ON T1.NUM_ENTRIES = T2.HIGHEST_AVG
---left join t1 to t2 to keep only rows that include max avg entry 
+	LEFT JOIN T1 ON T1.num_entries = T2.highest_avg;
 
---To make a query that can be edited with minimal effort for the future (because i want to make one for each measure)
--- I can create the following framework to use as a list in the where clause later on
---This function has the row numbers and measures to let us know we will need 1-12 in the twelve diff. q's in our where
+-- Create reusable lookup for assigning row numbers to each unique measure
 WITH l1 AS (
 	SELECT measure,
-			row_number() OVER (ORDER BY measure)
+			ROW_NUMBER() OVER (ORDER BY measure)
 		FROM
-			(SELECT DISTINCT measure FROM border_entry_data))
-SELECT * FROM l1
-	
---Use the same q' as before but now join 'l1' values in 'l2' so that we can filter by row number i.e. filter by measure even if it is unknown
---To find what measure is being referenced, refer to table in previous query
+			(SELECT DISTINCT measure FROM border_entry_data)
+)
+SELECT * FROM l1;
+
+-- Generalized framework to analyze a single method (via row number) over time
 WITH
 	L1 AS (
 		SELECT
-			MEASURE AS OLD_MEASURE,
-			ROW_NUMBER() OVER (
-				ORDER BY
-					MEASURE
-			) AS RN
+			measure AS old_measure,
+			ROW_NUMBER() OVER (ORDER BY measure) AS rn
 		FROM
-			(
-				SELECT DISTINCT
-					MEASURE
-				FROM
-					BORDER_ENTRY_DATA
-			)
+			(SELECT DISTINCT measure FROM border_entry_data)
 	),
 	L2 AS (
 		SELECT
 			*
 		FROM
-			BORDER_ENTRY_DATA AS BED
-			LEFT JOIN L1 ON BED.MEASURE = L1.OLD_MEASURE
+			border_entry_data AS bed
+			LEFT JOIN L1 ON bed.measure = L1.old_measure
 	)
-	--create the data table to show progression and potential trends per month (use this same query but replace 1 with next num for next measure)
+-- Output total entries per month for the selected method (rn = 1 = first method alphabetically)
 SELECT
-	DATE_TRUNC('year', DATE) AS YEAR_DATE,
-	DATE,
-	MEASURE,
-	SUM(VALUE) AS PER_MONTH
+	DATE_TRUNC('year', date) AS year_date,
+	date,
+	measure,
+	SUM(value) AS per_month
 FROM
 	L2
 WHERE
-	RN = 1
+	rn = 1
 GROUP BY
-	YEAR_DATE,
-	DATE,
-	MEASURE
+	year_date,
+	date,
+	measure
 ORDER BY
-	YEAR_DATE,
-	DATE
+	year_date,
+	date;
 
--- Gives us the history of top 5 ports for each month
+-- Historical top 5 ports by entries each month
 SELECT
 	*
-FROM
-	(
+FROM (
 		SELECT
-			DATE,
-			--Concat state name onto port
-			PORT_NAME || ', ' || STATE_NAME AS NAMED,
-			SUM(VALUE) AS ENTRIES,
-			--Assign ranked based on total entries per month
+			date,
+			port_name || ', ' || state_name AS named, -- Combined label
+			SUM(value) AS entries,
 			RANK() OVER (
-				PARTITION BY
-					DATE
-				ORDER BY
-					SUM(VALUE) DESC
-			) AS RANKED
+				PARTITION BY date
+				ORDER BY SUM(value) DESC
+			) AS ranked
 		FROM
-			BORDER_ENTRY_DATA
+			border_entry_data
 		GROUP BY
-			DATE,
-			NAMED
+			date, named
 		ORDER BY
-			DATE
-	)
---limit to only the top 5 ports per month
+			date
+	) ranked_data
 WHERE
-	RANKED <= 5;
-
+	ranked <= 5;
