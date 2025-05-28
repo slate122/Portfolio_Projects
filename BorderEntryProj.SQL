@@ -1,5 +1,5 @@
-https://www.bts.gov/explore-topics-and-geography/geography/border-crossingentry-data#1
-
+/*https://www.bts.gov/explore-topics-and-geography/geography/border-crossingentry-data#1
+Written in PostgreSQL 17.5*/
 
 --Total number of entries all time
 SELECT
